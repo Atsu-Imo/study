@@ -1,0 +1,16 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Language-specific (add as needed)
+node_modules/
+__pycache__/
+*.pyc
+target/
+bin/

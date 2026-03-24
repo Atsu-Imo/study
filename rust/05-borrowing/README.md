@@ -24,29 +24,23 @@
 ### Goとの主な違い
 
 ```go
-// Goのポインタ — 読み書きの制限なし
-func addSuffix(s *string) {
-    *s = *s + "!"
-}
-s := "hello"
-addSuffix(&s)
-fmt.Println(s) // "hello!"
-
-// 複数のgoroutineが同じポインタを触ると危険
-// → go run -race で実行時に検出するしかない
+// Goでは同じデータを複数のgoroutineが同時に触れてしまう
+s := []int{1, 2, 3}
+go func() {
+    s[0] = 99  // 書き込み
+}()
+fmt.Println(s[0])  // 読み込み → データ競合！
+// 出力: 1 か 99 か不定（タイミング次第）
+// go run -race で検出できるが、実行時チェック。気づかないこともある
 ```
 
 ```rust
-// Rustの借用 — コンパイル時に安全性を保証
-fn add_suffix(s: &mut String) {
-    s.push_str("!");
-}
-let mut s = String::from("hello");
-add_suffix(&mut s);
-println!("{s}"); // "hello!"
-
-// 不変借用中に変更しようとするとコンパイルエラー
-// → データ競合がそもそも起きない
+// Rustでは同じデータの読み書きが同時に起きるとコンパイルエラー
+let mut v = vec![1, 2, 3];
+let r = &v[0];       // 不変借用（読み取り中）
+v.push(99);          // 変更しようとする → コンパイルエラー！
+println!("{r}");      // r がまだ生きているので衝突
+// 出力: なし（そもそもコンパイルが通らない。実行前にバグが見つかる）
 ```
 
 ## コード解説
@@ -153,9 +147,9 @@ print_str("hello");  // 文字列リテラル（&str）もそのまま渡せる
 
 ```rust
 // コンパイルエラー！ダングリング参照
-// fn dangle() -> &String {
+// fn dangle() -> &str {
 //     let s = String::from("hello");
-//     &s  // s は関数終了で drop → 無効な参照
+//     &s  // s は関数終了で drop → 無効なデータへの参照
 // }
 
 // 正しい方法: 所有権を返す

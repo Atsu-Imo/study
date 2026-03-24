@@ -77,6 +77,9 @@ fn main() {
     println!("Go: GCがメモリを管理。変数は自由にコピー・共有できる");
     println!("Rust: 所有権システムがコンパイル時にメモリ管理を保証");
     println!("  → GCなしで安全。実行時のオーバーヘッドなし");
+
+    // === 演習 ===
+    exercises();
 }
 
 // 所有権を受け取る関数（String はムーブされる）
@@ -104,13 +107,20 @@ fn string_length(s: String) -> (String, usize) {
     (s, length) // 所有権を返す
 }
 
-fn main() {
-    let s = String::from("hello");
-    let s = print_string(s);
-    let _ = print_string(s); // 2回目の呼び出し
-}
-
 fn print_string(s: String) -> String {
     println!("{s}");
     s
+}
+
+// 演習の動作確認用
+fn exercises() {
+    // 演習2: 借用を使わずに文字列の長さを返す
+    let s = String::from("hello, ownership!");
+    let (s, len) = string_length(s);
+    println!("{s} の長さは {len}");
+
+    // 演習3: 所有権を返して2回呼ぶ
+    let s = String::from("hello");
+    let s = print_string(s);
+    let _ = print_string(s);
 }

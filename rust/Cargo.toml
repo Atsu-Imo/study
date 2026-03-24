@@ -1,0 +1,14 @@
+[workspace]
+resolver = "3"
+members = [
+    "01-hello-cargo",
+    "02-variables-and-types",
+    "03-functions-and-control-flow",
+    "04-ownership",
+    "05-borrowing",
+    "06-structs-and-methods",
+    "07-enums-and-matching",
+    "08-traits-and-generics",
+    "09-error-handling",
+    "net-01-tcp-echo",
+]

@@ -24,17 +24,17 @@ fn main() {
     let mut s = String::from("hello");
     let r1 = &mut s;
     // let r2 = &mut s; // コンパイルエラー！可変借用は1つだけ
-    r1.push_str("!");
+    r1.push('!');
     println!("可変借用: {r1}");
 
     // === 不変借用と可変借用は同時に存在できない ===
     let mut s = String::from("hello");
-    let r1 = &s;     // 不変借用 OK
-    let r2 = &s;     // 不変借用 OK
+    let r1 = &s; // 不変借用 OK
+    let r2 = &s; // 不変借用 OK
     println!("{r1}, {r2}");
     // r1, r2 はここで最後に使われるので、ここで借用が終わる（NLL）
-    let r3 = &mut s;  // 可変借用 OK（r1, r2 はもう使われない）
-    r3.push_str("!");
+    let r3 = &mut s; // 可変借用 OK（r1, r2 はもう使われない）
+    r3.push('!');
     println!("{r3}");
 
     // === NLL（Non-Lexical Lifetimes） ===
@@ -44,8 +44,8 @@ fn main() {
     // === スライス — 借用の実用例 ===
     // 文字列スライス &str は String の一部への借用
     let s = String::from("hello world");
-    let hello = &s[0..5];   // "hello" への借用
-    let world = &s[6..11];  // "world" への借用
+    let hello = &s[0..5]; // "hello" への借用
+    let world = &s[6..11]; // "world" への借用
     println!("スライス: {hello} {world}");
 
     // 配列のスライスも同様
@@ -56,8 +56,8 @@ fn main() {
     // === &str vs &String ===
     // 関数は &str を受け取るのが慣習的（より汎用的）
     let s = String::from("hello");
-    print_str(&s);       // &String → &str に自動変換（deref coercion）
-    print_str("hello");  // 文字列リテラル &str もそのまま渡せる
+    print_str(&s); // &String → &str に自動変換（deref coercion）
+    print_str("hello"); // 文字列リテラル &str もそのまま渡せる
 
     // === ダングリング参照の防止 ===
     // Rustはダングリング参照（無効な参照）をコンパイル時に防ぐ
@@ -71,11 +71,14 @@ fn main() {
     println!("2. 可変借用（&mut T）は同時に1つだけ");
     println!("3. 不変と可変は同時に存在できない");
     println!("4. 参照は常に有効でなければならない（ダングリング禁止）");
+
+    // === 演習 ===
+    exercises();
 }
 
 // 不変借用を受け取る関数
-// &String で参照を受け取るので、所有権はムーブされない
-fn calculate_length(s: &String) -> usize {
+// &str で参照を受け取るので、所有権はムーブされない
+fn calculate_length(s: &str) -> usize {
     s.len()
 } // s はここでスコープを抜けるが、所有権を持っていないので何も起きない
 
@@ -100,4 +103,51 @@ fn print_str(s: &str) {
 // 正しい方法: 所有権を返す
 fn no_dangle() -> String {
     String::from("hello")
+}
+
+// ============================================================
+// 演習
+// ============================================================
+
+// --- 演習1: 基礎 ---
+// 借用を使って文字列の長さを返す関数に書き直そう
+// （04では所有権をタプルで返していたのをシンプルにする）
+fn string_length(s: &str) -> usize {
+    s.len()
+}
+
+// --- 演習2: 応用 ---
+// 以下のコードがコンパイルエラーになる理由を説明し、修正しよう
+fn exercise2() {
+    let mut s = String::from("hello");
+    let r1 = &s;
+    println!("{r1}");
+    s.push_str(", world!");
+}
+
+// --- 演習3: チャレンジ ---
+// 文字列の最初の単語を返す関数を実装しよう
+fn first_word(s: &str) -> &str {
+    s.as_bytes()
+        .iter()
+        .enumerate()
+        .find(|&(_, &byte)| byte == b' ')
+        .map(|(i, _)| &s[..i])
+        .unwrap_or(s)
+}
+
+// 演習の動作確認用
+fn exercises() {
+    // 演習1
+    let s = String::from("hello, ownership!");
+    let len = string_length(&s);
+    println!("{s} の長さは {len}");
+
+    // 演習2
+    exercise2();
+
+    // 演習3
+    let s = String::from("hello world");
+    let word = first_word(&s);
+    println!("最初の単語: {word}");
 }

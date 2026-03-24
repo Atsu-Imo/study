@@ -101,8 +101,16 @@ Qed.
 (* ヒント: destruct で場合分けが必要 *)
 Theorem orb_commutative : forall a b : bool, orb a b = orb b a.
 Proof.
-  (* ここに証明を書く *)
-Admitted.
+  intro a.
+  intro b.
+  destruct a.
+  - destruct b.
+   + simpl. reflexivity.
+   + simpl. reflexivity.
+  - destruct b.
+   + simpl. reflexivity.
+   + simpl. reflexivity.
+Qed.
 
 (* 演習3 (チャレンジ): andb a b = orb a b ならば a = b を証明しよう *)
 (* ヒント: まず a で destruct、次に b で destruct。
@@ -110,5 +118,14 @@ Admitted.
 Theorem andb_eq_orb :
   forall b c : bool, andb b c = orb b c -> b = c.
 Proof.
-  (* ここに証明を書く *)
-Admitted.
+ intros b c H.
+ destruct b.
+  - destruct c.
+   + reflexivity.
+   + simpl in H.
+    discriminate.
+  - destruct c.
+   + simpl in H.
+    discriminate.
+   + reflexivity.
+Qed.

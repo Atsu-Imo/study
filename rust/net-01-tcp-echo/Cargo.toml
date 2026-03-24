@@ -1,0 +1,4 @@
+[package]
+name = "net-01-tcp-echo"
+version = "0.1.0"
+edition = "2024"

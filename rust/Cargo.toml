@@ -10,5 +10,9 @@ members = [
     "07-enums-and-matching",
     "08-traits-and-generics",
     "09-error-handling",
+    "10-collections-and-iterators",
+    "11-lifetimes",
     "net-01-tcp-echo",
+    "net-02-http-server",
+    "net-03-dns",
 ]

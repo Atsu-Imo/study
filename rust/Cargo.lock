@@ -13,6 +13,10 @@ name = "borrowing"
 version = "0.1.0"
 
 [[package]]
+name = "collections-and-iterators"
+version = "0.1.0"
+
+[[package]]
 name = "enums-and-matching"
 version = "0.1.0"
 
@@ -33,7 +37,19 @@ name = "hello-cargo"
 version = "0.1.0"
 
 [[package]]
+name = "lifetimes"
+version = "0.1.0"
+
+[[package]]
 name = "net-01-tcp-echo"
+version = "0.1.0"
+
+[[package]]
+name = "net-02-http-server"
+version = "0.1.0"
+
+[[package]]
+name = "net-03-dns"
 version = "0.1.0"
 
 [[package]]

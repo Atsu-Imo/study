@@ -15,4 +15,5 @@ members = [
     "net-01-tcp-echo",
     "net-02-http-server",
     "net-03-dns",
+    "net-extra-http2-hpack",
 ]

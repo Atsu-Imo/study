@@ -7,6 +7,7 @@
 ## ディレクトリ構成
 
 - `mediaconvert/` — AWS MediaConvert + 映像基礎知識
+- `aurora-dsql/` — Aurora DSQL（分散SQL）の概要・使い分け
 
 ## 進め方
 

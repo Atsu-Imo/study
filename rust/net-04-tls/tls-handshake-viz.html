@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>TLS ハンドシェイク可視化 — net-04</title>
+<style>
+  :root {
+    --bg: #14171f;
+    --panel: #1d2230;
+    --panel2: #232a3d;
+    --line: #3a4258;
+    --text: #d8dce8;
+    --dim: #8b93a8;
+    --client: #4fa3ff;
+    --server: #ffa94f;
+    --ca: #b48cff;
+    --ok: #5ad08a;
+    --enc: #ffd24f;
+    --danger: #ff6b6b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", sans-serif;
+    min-width: 1200px;
+  }
+  .wrap { width: 1180px; margin: 0 auto; padding: 16px 0 28px; }
+
+  h1 { font-size: 19px; font-weight: 700; letter-spacing: .02em; }
+  h1 .sub { font-size: 12px; color: var(--dim); font-weight: 400; margin-left: 10px; }
+
+  /* ---- 進行状況 ---- */
+  .progress {
+    display: flex; gap: 4px; margin: 12px 0 6px;
+  }
+  .progress .seg {
+    flex: 1; height: 7px; border-radius: 4px;
+    background: var(--line);
+    transition: background .25s;
+    cursor: default;
+    position: relative;
+  }
+  .progress .seg.done { background: #3e7bd6; }
+  .progress .seg.now  { background: var(--enc); }
+  .progress-labels { display: flex; gap: 4px; margin-bottom: 8px; }
+  .progress-labels span {
+    flex: 1; font-size: 9.5px; color: var(--dim); text-align: center;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  }
+  .progress-labels span.now { color: var(--enc); }
+
+  /* ---- 操作列 ---- */
+  .controls {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 10px;
+  }
+  button {
+    background: var(--panel2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px;
+    font-size: 14px; padding: 8px 22px; cursor: pointer;
+    font-family: inherit;
+    transition: background .15s, border-color .15s;
+  }
+  button:hover:not(:disabled) { background: #2d3650; border-color: #56628a; }
+  button:disabled { opacity: .35; cursor: default; }
+  button.primary { background: #2b5ca8; border-color: #3e7bd6; font-weight: 600; }
+  button.primary:hover:not(:disabled) { background: #336dc4; }
+  .stepnum { font-size: 14px; color: var(--dim); min-width: 130px; }
+  .stepnum b { color: var(--text); font-size: 16px; }
+  .keyhint { font-size: 11.5px; color: var(--dim); margin-left: auto; }
+
+  /* ---- ステージ（シーケンス図）---- */
+  #stage {
+    position: relative;
+    height: 770px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .actor {
+    position: absolute;
+    width: 150px; text-align: center;
+    transform: translateX(-50%);
+    border-radius: 10px;
+    padding: 8px 6px 7px;
+    font-weight: 700; font-size: 15px;
+    border: 1.5px solid;
+    z-index: 5;
+    background: var(--panel2);
+  }
+  .actor small { display: block; font-weight: 400; font-size: 10.5px; color: var(--dim); margin-top: 2px; }
+  .actor.client { border-color: var(--client); color: var(--client); }
+  .actor.server { border-color: var(--server); color: var(--server); }
+  .actor.ca     { border-color: var(--ca);     color: var(--ca); }
+
+  .lifeline {
+    position: absolute; top: 64px; bottom: 14px; width: 2px;
+    transform: translateX(-50%);
+    background: var(--line);
+  }
+  .lifeline.ca-line {
+    top: 50px;
+    background: repeating-linear-gradient(to bottom, var(--line) 0 6px, transparent 6px 12px);
+  }
+
+  /* 暗号化フェーズの帯 */
+  #encZone {
+    position: absolute; left: 60px; right: 60px;
+    background: rgba(255, 210, 79, 0.06);
+    border: 1px dashed rgba(255, 210, 79, 0.35);
+    border-radius: 10px;
+    opacity: 0; transition: opacity .6s;
+    z-index: 1;
+  }
+  #encZone.show { opacity: 1; }
+  #encZone .zlabel {
+    position: absolute; top: 4px; left: 10px;
+    font-size: 11px; color: var(--enc);
+  }
+
+  /* ---- メッセージ矢印 ---- */
+  .msg { position: absolute; z-index: 4; }
+  .msg .line {
+    position: absolute; height: 2px; top: 0;
+    background: var(--dim);
+  }
+  .msg.prep .line {
+    background: repeating-linear-gradient(to right, var(--ca) 0 7px, transparent 7px 13px);
+  }
+  .msg.enc .line { background: var(--enc); }
+  .msg .head {
+    position: absolute; top: -5px;
+    width: 0; height: 0;
+    border-top: 6px solid transparent;
+    border-bottom: 6px solid transparent;
+  }
+  .msg .head.right { border-left: 10px solid var(--dim); }
+  .msg .head.left  { border-right: 10px solid var(--dim); }
+  .msg.prep .head.right { border-left-color: var(--ca); }
+  .msg.prep .head.left  { border-right-color: var(--ca); }
+  .msg.enc .head.right { border-left-color: var(--enc); }
+  .msg.enc .head.left  { border-right-color: var(--enc); }
+  .msg .lbl {
+    position: absolute; bottom: 6px; left: 0; right: 0;
+    text-align: center; font-size: 12.5px; white-space: nowrap;
+    color: var(--text);
+  }
+  .msg .lbl small { color: var(--dim); font-size: 11px; margin-left: 6px; }
+  .msg.prep .lbl { color: var(--ca); }
+  .msg.prep .lbl small { color: #9a85c9; }
+  .msg.enc .lbl { color: var(--enc); }
+  .msg.enc .lbl small { color: #b9a35a; }
+
+  .msg.trust-glow .line { box-shadow: 0 0 8px 2px rgba(180,140,255,.7); }
+  .msg.trust-glow .lbl  { color: #d9c8ff; text-shadow: 0 0 8px rgba(180,140,255,.8); }
+
+  /* ---- 飛んでいくパケット ---- */
+  .packet {
+    position: absolute; z-index: 20;
+    width: 220px; margin-left: -110px;
+    background: #2b3247;
+    border: 1.5px solid var(--dim);
+    border-radius: 9px;
+    padding: 5px 8px 6px;
+    text-align: center;
+    box-shadow: 0 4px 14px rgba(0,0,0,.5);
+    transition: left 0.9s cubic-bezier(.45,.05,.55,.95), opacity .3s;
+  }
+  .packet b { display: block; font-size: 13px; }
+  .packet span { display: block; font-size: 11px; color: var(--dim); margin-top: 1px; }
+  .packet.prep { border-color: var(--ca); }
+  .packet.prep b { color: var(--ca); }
+  .packet.enc { border-color: var(--enc); background: #383223; }
+  .packet.enc b { color: var(--enc); }
+  .packet.fade { opacity: 0; }
+
+  /* ---- 内部処理ボックス ---- */
+  .internal {
+    position: absolute; z-index: 6;
+    transform: translateX(-50%);
+    background: var(--panel2);
+    border: 1.5px solid var(--ok);
+    color: var(--ok);
+    border-radius: 9px;
+    padding: 6px 12px;
+    font-size: 12.5px; font-weight: 600;
+    text-align: center; white-space: nowrap;
+  }
+  .internal.appear { animation: popin .45s ease-out; }
+  @keyframes popin {
+    0% { transform: translateX(-50%) scale(.6); opacity: 0; }
+    70% { transform: translateX(-50%) scale(1.08); }
+    100% { transform: translateX(-50%) scale(1); opacity: 1; }
+  }
+  .internal small { display: block; font-weight: 400; font-size: 10.5px; color: var(--dim); }
+  .samekey {
+    position: absolute; z-index: 5; text-align: center;
+    font-size: 11.5px; color: var(--ok);
+  }
+  .samekey .dash {
+    border-top: 1.5px dashed var(--ok); opacity: .55;
+    margin-bottom: 2px;
+  }
+
+  /* ---- 証明書検証チェックリスト ---- */
+  #verifyPanel {
+    position: absolute; z-index: 30;
+    width: 330px;
+    background: #20283a;
+    border: 1.5px solid var(--ok);
+    border-radius: 10px;
+    padding: 10px 14px 11px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.55);
+    display: none;
+  }
+  #verifyPanel.show { display: block; animation: popin2 .4s ease-out; }
+  @keyframes popin2 { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; } }
+  #verifyPanel h3 { font-size: 13.5px; color: var(--ok); margin-bottom: 7px; }
+  #verifyPanel .chk {
+    display: flex; gap: 8px; align-items: flex-start;
+    font-size: 12px; line-height: 1.45;
+    margin-bottom: 6px; opacity: 0; transition: opacity .4s;
+  }
+  #verifyPanel .chk.on { opacity: 1; }
+  #verifyPanel .chk .mark {
+    color: var(--ok); font-weight: 700; flex: none;
+    transform: scale(0); transition: transform .3s .1s;
+  }
+  #verifyPanel .chk.on .mark { transform: scale(1.25); }
+  #verifyPanel .chk small { color: var(--dim); display: block; }
+  #verifyPanel .note {
+    font-size: 11px; color: var(--ca); margin-top: 4px;
+    border-top: 1px solid var(--line); padding-top: 6px;
+    opacity: 0; transition: opacity .4s;
+  }
+  #verifyPanel .note.on { opacity: 1; }
+
+  /* ---- 解説パネル ---- */
+  #desc {
+    margin-top: 12px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-left: 4px solid #3e7bd6;
+    border-radius: 10px;
+    padding: 13px 18px;
+    min-height: 108px;
+  }
+  #desc.internal-step { border-left-color: var(--ok); }
+  #desc.enc-step { border-left-color: var(--enc); }
+  #desc.prep-step { border-left-color: var(--ca); }
+  #desc h2 { font-size: 15.5px; margin-bottom: 6px; }
+  #desc .what { font-size: 13.5px; line-height: 1.7; }
+  #desc .why {
+    font-size: 12.5px; line-height: 1.65; color: var(--dim); margin-top: 6px;
+  }
+  #desc .why b { color: var(--ok); font-weight: 600; }
+  .tag {
+    display: inline-block; font-size: 10.5px; padding: 1px 8px;
+    border-radius: 10px; margin-left: 8px; vertical-align: 2px;
+    border: 1px solid;
+  }
+  .tag.public  { color: var(--client); border-color: var(--client); }
+  .tag.secret  { color: var(--danger); border-color: var(--danger); }
+  .tag.encd    { color: var(--enc); border-color: var(--enc); }
+  .tag.caop    { color: var(--ca); border-color: var(--ca); }
+  .tag.derive  { color: var(--ok); border-color: var(--ok); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>TLS ハンドシェイク可視化
+    <span class="sub">net-04: 「誰が何を渡し、なぜそれで安全になるのか」 — 機密性・完全性・真正性</span>
+  </h1>
+
+  <div class="progress" id="progress"></div>
+  <div class="progress-labels" id="progressLabels"></div>
+
+  <div class="controls">
+    <button id="btnPrev">◀ 戻る</button>
+    <button id="btnNext" class="primary">次へ ▶</button>
+    <span class="stepnum" id="stepnum"></span>
+    <button id="btnReset">最初から</button>
+    <span class="keyhint">キーボード: → 進む / ← 戻る</span>
+  </div>
+
+  <div id="stage">
+    <div class="actor ca" style="left:590px; top:8px;">🏛️ CA（認証局）<small>署名用の秘密鍵 d 🔒 / 検証用の公開鍵 (e, n) 🌐</small></div>
+    <div class="actor client" style="left:170px; top:22px;">💻 クライアント<small>DH秘密鍵 a 🔒 / client_random 🌐</small></div>
+    <div class="actor server" style="left:1010px; top:22px;">🖥️ サーバー<small>DH秘密鍵 b 🔒 / 証明書・server_random 🌐</small></div>
+
+    <div class="lifeline ca-line" style="left:590px;"></div>
+    <div class="lifeline" style="left:170px; top:78px;"></div>
+    <div class="lifeline" style="left:1010px; top:78px;"></div>
+
+    <div id="encZone"><span class="zlabel">🔒 暗号化通信フェーズ（セッション鍵で暗号化）</span></div>
+
+    <div id="verifyPanel">
+      <h3>★ クライアントが証明書を検証</h3>
+      <div class="chk" id="chk1"><span class="mark">✔</span>
+        <div>CA 署名は正しい？<small>CA の公開鍵で検証: 署名^e mod n == digest（名前+公開鍵のハッシュ）</small></div></div>
+      <div class="chk" id="chk2"><span class="mark">✔</span>
+        <div>名前は一致する？<small>証明書の名前 == 接続先ホスト名（toytls.local）</small></div></div>
+      <div class="chk" id="chk3"><span class="mark">✔</span>
+        <div>（本物の TLS では）有効期限・信頼チェーンも確認<small>サーバー→中間CA→ルートCA と、根元まで署名をバケツリレーでたどる</small></div></div>
+      <div class="note" id="chkNote">🏛️ 信頼の流れ: CA が事前に署名 → クライアントは同梱の CA 公開鍵で検証。<br>攻撃者は CA の秘密鍵を持たない＝有効な署名を作れない → すり替えはここでバレる。</div>
+    </div>
+
+    <div id="artifacts"></div>
+  </div>
+
+  <div id="desc">
+    <h2 id="descTitle"></h2>
+    <div class="what" id="descWhat"></div>
+    <div class="why" id="descWhy"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// レーンの X 座標
+const X = { client: 170, ca: 590, server: 1010 };
+// シーケンスの縦配置
+const BASE_Y = 132;
+const ROW_H = 53;
+
+// ステップ定義（rust/net-04-tls/README.md と rust/net-05-ca/README.md に忠実）
+// type: msg=メッセージ送信 / internal=内部処理（何も流れない）
+const STEPS = [
+  {
+    id: "prep-sign", type: "msg", from: "ca", to: "server", kind: "prep",
+    short: "事前:CA署名",
+    label: "〔事前〕証明書を発行（署名）",
+    sub: "CA秘密鍵 d で「名前+公開鍵」に署名",
+    packet: ["証明書（CA署名入り）", "{ name, 公開鍵 B, 署名 = digest^d mod n }"],
+    title: "事前準備①: CA がサーバー証明書に署名する 🏛️",
+    tag: '<span class="tag caop">🏛️ CA の仕事（ハンドシェイク前）</span>',
+    what: "ハンドシェイクが始まる前に、CA（認証局）はサーバーの「名前 + 公開鍵」のセットに自分の<b>秘密鍵 d</b> で署名し、証明書を発行している。証明書 = { name: \"toytls.local\", 公開鍵: B, 署名 }。",
+    why: "CA は「この公開鍵は確かにこの名前の持ち主のもの」と保証する第三者。CA の秘密鍵は<b>一度もネットに流れない</b> — 漏れたら全証明書を偽造され放題になるため、ルート鍵は金庫（オフライン）で保管される。"
+  },
+  {
+    id: "prep-anchor", type: "msg", from: "ca", to: "client", kind: "prep",
+    short: "事前:CA公開鍵",
+    label: "〔事前〕CA 公開鍵を同梱",
+    sub: "ブラウザ/OS に最初から入っている",
+    packet: ["CA 公開鍵 (e, n)", "信頼の起点 = トラストアンカー"],
+    title: "事前準備②: CA の公開鍵はブラウザ/OS に同梱されている 🏛️",
+    tag: '<span class="tag caop">🏛️ トラストアンカー</span>',
+    what: "CA の<b>検証用の公開鍵 (e, n)</b> は、ブラウザや OS に最初から同梱されている。これが「信頼の起点（トラストアンカー）」。",
+    why: "クライアントが最初から信頼しているのは<b>ルート CA の公開鍵だけ</b>。あとで受け取るサーバー証明書は、この公開鍵で署名を検証することで初めて信頼できる。信頼は名前ではなく「鍵による署名」で成り立つ。"
+  },
+  {
+    id: "client-hello", type: "msg", from: "client", to: "server", kind: "plain",
+    short: "①ClientHello",
+    label: "① ClientHello",
+    sub: "client_random, 使える暗号の一覧",
+    packet: ["ClientHello", "client_random, 使える暗号の一覧"],
+    title: "① ClientHello — 交渉の開始",
+    tag: '<span class="tag public">🌐 全部公開</span>',
+    what: "クライアントが <b>client_random</b>（乱数）と「自分が使える暗号の一覧」を送って交渉を始める。",
+    why: "ここで流れるのは全部<b>公開情報</b> — 盗聴者に丸見えでも問題ない設計。client_random はセッション鍵を毎回変えるための材料になる。"
+  },
+  {
+    id: "server-hello", type: "msg", from: "server", to: "client", kind: "plain",
+    short: "②ServerHello",
+    label: "② ServerHello",
+    sub: "server_random, 採用する暗号",
+    packet: ["ServerHello", "server_random, 採用する暗号"],
+    title: "② ServerHello — 暗号の決定",
+    tag: '<span class="tag public">🌐 全部公開</span>',
+    what: "サーバーは <b>server_random</b> と、一覧の中から「採用する暗号」を選んで返す。これで両者が使う暗号方式が決まる。",
+    why: "2つの random（client_random / server_random）は、同じサーバーに接続しても<b>セッション鍵が毎回違う値になる</b>ようにするための乱数。"
+  },
+  {
+    id: "certificate", type: "msg", from: "server", to: "client", kind: "plain",
+    short: "③Certificate",
+    label: "③ Certificate",
+    sub: "名前 + DH公開鍵 + CA署名",
+    packet: ["Certificate", "名前 + サーバーDH公開鍵 + CA署名"],
+    title: "③ Certificate — 「自分は本物」の証明書を提示",
+    tag: '<span class="tag public">🌐 公開（🏛️ CA 署名入り）</span>',
+    what: "サーバーは「名前 + 自分の DH 公開鍵 + <b>CA の署名</b>」が入った証明書を提示する。事前準備①で CA に署名してもらったものだ。",
+    why: "DH 鍵交換だけだと<b>中間者攻撃 (MITM)</b> に弱い — 攻撃者が間に入って両側と別々に鍵交換できてしまう。攻撃者がこの証明書をすり替えても、<b>CA の秘密鍵を持たない＝有効な署名を作れない</b>ので、次の検証で検出される。"
+  },
+  {
+    id: "hello-done", type: "msg", from: "server", to: "client", kind: "plain",
+    short: "④HelloDone",
+    label: "④ ServerHelloDone",
+    sub: "（空。「送るものは送った」の合図）",
+    packet: ["ServerHelloDone", "（中身は空 — 合図のみ）"],
+    title: "④ ServerHelloDone — サーバー側の出し物は終わり",
+    tag: '<span class="tag public">— 合図のみ</span>',
+    what: "「送るものは送った」というサーバーからの合図。中身は空。",
+    why: "ここまでで、クライアントの手元に「相手が本物か」を確かめる材料（証明書）が揃った。<b>③④で相手を確認してから、⑤⑥で鍵を作る</b>という順番がポイント — 先に相手を信頼できると確認するからこそ、その後の鍵交換が意味を持つ。"
+  },
+  {
+    id: "verify", type: "internal", at: ["client"],
+    short: "★証明書検証",
+    box: "★ 証明書を検証",
+    boxSub: "CA署名は正しい? 名前は一致?",
+    title: "★ 証明書を検証 — なりすましをここで弾く",
+    tag: '<span class="tag caop">🏛️ クライアント内部の処理</span>',
+    what: "クライアントは同梱の <b>CA 公開鍵</b>で署名を検証し（署名^e mod n == digest に戻るか）、証明書の<b>名前が接続先ホスト名と一致するか</b>を照合する。digest は「名前 + 公開鍵」のハッシュなので、1ビットでも改ざんされていれば検証に失敗する。",
+    why: "これが<b>真正性</b>（なりすまし防止）の核心。本物の TLS ではさらに有効期限の確認と、サーバー証明書→中間CA→ルートCA と署名を根元までたどる<b>信頼の連鎖 (chain of trust)</b> の検証を行う。偽 CA は名前を騙れても鍵が違うので弾かれる。"
+  },
+  {
+    id: "key-exchange", type: "msg", from: "client", to: "server", kind: "plain",
+    short: "⑤KeyExchange",
+    label: "⑤ ClientKeyExchange",
+    sub: "クライアントの DH 公開鍵",
+    packet: ["ClientKeyExchange", "クライアント DH 公開鍵 A = g^a mod p"],
+    title: "⑤ ClientKeyExchange — 鍵交換の材料を渡す",
+    tag: '<span class="tag public">🌐 公開</span> <span class="tag secret">🔒 秘密鍵 a, b は流れない</span>',
+    what: "クライアントが自分の <b>DH 公開鍵</b>を送る。これで両者が「相手の公開鍵」を手に入れた。",
+    why: "秘密鍵 a, b は<b>一度もネットワークに流れない</b> — 流れるのは公開鍵 A, B だけ。盗聴者は p, g, A, B を全部見られるが、A = g^a mod p から a を逆算するのは<b>離散対数問題</b>で、現実的な時間では解けない。これが安全性の根拠。"
+  },
+  {
+    id: "derive", type: "internal", at: ["client", "server"],
+    short: "★鍵を導出",
+    box: "★ 共有秘密 → セッション鍵を計算",
+    boxSub: "相手の公開鍵 + 自分の秘密鍵で計算",
+    title: "★ 両者が共有秘密 → セッション鍵を導出（何も流れない）",
+    tag: '<span class="tag derive">🔑 導出 — ネットに流れない</span>',
+    what: "両者がそれぞれ「相手の公開鍵 + 自分の秘密鍵」で共有秘密を計算する。B^a = A^b = <b>g^(ab) mod p で同じ値</b>になる。さらに共有秘密 + 2つの random からセッション鍵を導出する。",
+    why: "何もネットに流れないのに、両者は同じ鍵にたどり着く。盗聴者は流れた公開情報を全部集めても<b>セッション鍵を作れない</b>。以降は遅い公開鍵暗号をやめて、<b>速い共通鍵暗号</b>に切り替える — これが TLS の「いいとこ取り」。"
+  },
+  {
+    id: "finished", type: "msg", from: "client", to: "server", kind: "enc", bidir: true,
+    short: "⑥Finished",
+    label: "⑥ Finished ⇄（ここから暗号化）",
+    sub: "暗号化した「準備OK」の確認",
+    packet: ["🔒 Finished", "暗号化した「準備OK」確認"],
+    packetBack: ["🔒 Finished", "サーバーからも「準備OK」"],
+    title: "⑥ Finished — 暗号化の開始を相互確認",
+    tag: '<span class="tag encd">🔐 暗号文</span>',
+    what: "両者がセッション鍵で<b>暗号化した「準備OK」</b>の確認メッセージを交換する。ここから先の通信はすべて暗号化される。",
+    why: "ハンドシェイクが正しく完了したことをお互いに確かめる仕上げ。これで「盗聴できない・改ざんできない・なりすませない」通信路が完成した。"
+  },
+  {
+    id: "appdata", type: "msg", from: "client", to: "server", kind: "enc", bidir: true,
+    short: "⑦暗号化通信",
+    label: "⑦ Application Data ⇄",
+    sub: "暗号化された HTTP リクエスト/レスポンス",
+    packet: ["🔒 GET /secret HTTP/1.1", "セッション鍵で暗号化済み"],
+    packetBack: ["🔒 HTTP/1.1 200 OK", "レスポンスも暗号化済み"],
+    title: "⑦ 暗号化通信フェーズ — ブラウザの鍵マークの正体",
+    tag: '<span class="tag encd">🔐 暗号文</span>',
+    what: "HTTP のリクエスト/レスポンスが<b>セッション鍵で暗号化されて</b>流れる。経路上の盗聴者には意味不明なバイト列にしか見えない。",
+    why: "<b>機密性</b>（盗聴防止）はこの暗号化で、<b>完全性</b>（改ざん検知）はメッセージ認証 (MAC/AEAD) で、<b>真正性</b>（なりすまし防止）は証明書 + CA 署名で守られた。これがアドレスバーの<b>鍵マークの正体</b>。"
+  }
+];
+
+const TOTAL = STEPS.length;
+let cur = 0;          // 完了済みステップ数 (0 = 初期状態)
+let busy = false;
+const artifactEls = [];  // ステップごとの描画済み要素
+
+const stage = document.getElementById("stage");
+const artifacts = document.getElementById("artifacts");
+const verifyPanel = document.getElementById("verifyPanel");
+const encZone = document.getElementById("encZone");
+const btnNext = document.getElementById("btnNext");
+const btnPrev = document.getElementById("btnPrev");
+const btnReset = document.getElementById("btnReset");
+
+// ---- 進行状況バー ----
+const progEl = document.getElementById("progress");
+const progLblEl = document.getElementById("progressLabels");
+STEPS.forEach(s => {
+  const seg = document.createElement("div");
+  seg.className = "seg";
+  progEl.appendChild(seg);
+  const lbl = document.createElement("span");
+  lbl.textContent = s.short;
+  progLblEl.appendChild(lbl);
+});
+
+function rowY(i) { return BASE_Y + i * ROW_H; }
+
+// ---- 静的な矢印（ステップ完了後に残るもの）を描画 ----
+function drawMsg(step, i) {
+  const y = rowY(i);
+  const x1 = X[step.from], x2 = X[step.to];
+  const left = Math.min(x1, x2), w = Math.abs(x2 - x1);
+  const el = document.createElement("div");
+  el.className = "msg " + (step.kind === "prep" ? "prep" : step.kind === "enc" ? "enc" : "");
+  el.style.left = left + "px";
+  el.style.top = y + "px";
+  el.style.width = w + "px";
+  const toRight = x2 > x1;
+  el.innerHTML =
+    '<div class="line" style="left:0; width:100%"></div>' +
+    (step.bidir
+      ? '<div class="head right" style="right:-1px"></div><div class="head left" style="left:-1px"></div>'
+      : toRight
+        ? '<div class="head right" style="right:-1px"></div>'
+        : '<div class="head left" style="left:-1px"></div>') +
+    '<div class="lbl">' + step.label + '<small>' + step.sub + '</small></div>';
+  artifacts.appendChild(el);
+  return el;
+}
+
+// ---- 内部処理ボックスを描画 ----
+function drawInternal(step, i, animate) {
+  const y = rowY(i);
+  const wrapper = document.createElement("div");
+  step.at.forEach(lane => {
+    const el = document.createElement("div");
+    el.className = "internal" + (animate ? " appear" : "");
+    el.style.left = X[lane] + "px";
+    el.style.top = (y - 18) + "px";
+    el.innerHTML = step.box + '<small>' + step.boxSub + '</small>';
+    wrapper.appendChild(el);
+  });
+  if (step.at.length === 2) {
+    const same = document.createElement("div");
+    same.className = "samekey";
+    same.style.left = (X.client + 150) + "px";
+    same.style.width = (X.server - X.client - 300) + "px";
+    same.style.top = (y + 2) + "px";
+    same.innerHTML = '<div class="dash"></div>= 同じ値 g^(ab) mod p（何もネットに流れない）';
+    wrapper.appendChild(same);
+  }
+  wrapper.style.position = "absolute";
+  wrapper.style.inset = "0";
+  wrapper.style.pointerEvents = "none";
+  artifacts.appendChild(wrapper);
+  return wrapper;
+}
+
+// ---- パケット飛行アニメーション ----
+function flyPacket(step, i, fromLane, toLane, packetContent, done) {
+  const y = rowY(i);
+  const p = document.createElement("div");
+  p.className = "packet " + (step.kind === "prep" ? "prep" : step.kind === "enc" ? "enc" : "");
+  p.innerHTML = '<b>' + packetContent[0] + '</b><span>' + packetContent[1] + '</span>';
+  p.style.left = X[fromLane] + "px";
+  p.style.top = (y - 50) + "px";
+  stage.appendChild(p);
+  // リフロー後に目的地へ
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    p.style.left = X[toLane] + "px";
+  }));
+  setTimeout(() => {
+    p.classList.add("fade");
+    setTimeout(() => { p.remove(); done(); }, 300);
+  }, 950);
+}
+
+// ---- 証明書検証ステップの演出 ----
+function findArtifactByStepId(id) {
+  const idx = STEPS.findIndex(s => s.id === id);
+  return idx >= 0 ? artifactEls[idx] : null;
+}
+function showVerifyPanel(i, animate) {
+  const y = rowY(i);
+  verifyPanel.style.left = (X.client + 40) + "px";
+  verifyPanel.style.top = (y - 30) + "px";
+  verifyPanel.classList.add("show");
+  const checks = ["chk1", "chk2", "chk3", "chkNote"];
+  checks.forEach((id, k) => {
+    const el = document.getElementById(id);
+    el.classList.remove("on");
+    if (animate) {
+      setTimeout(() => el.classList.add("on"), 350 + k * 550);
+    } else {
+      el.classList.add("on");
+    }
+  });
+  // 信頼の流れをハイライト: 事前署名・CA公開鍵配布・Certificate
+  ["prep-sign", "prep-anchor", "certificate"].forEach(id => {
+    const el = findArtifactByStepId(id);
+    if (el) el.classList.add("trust-glow");
+  });
+}
+function hideVerifyPanel() {
+  verifyPanel.classList.remove("show");
+  ["prep-sign", "prep-anchor", "certificate"].forEach(id => {
+    const el = findArtifactByStepId(id);
+    if (el) el.classList.remove("trust-glow");
+  });
+}
+
+// ---- 暗号化フェーズの帯 ----
+function updateEncZone() {
+  const fIdx = STEPS.findIndex(s => s.id === "finished");
+  if (cur > fIdx) {
+    encZone.style.top = (rowY(fIdx) - 40) + "px";
+    encZone.style.bottom = "12px";
+    encZone.classList.add("show");
+  } else {
+    encZone.classList.remove("show");
+  }
+}
+
+// ---- 解説パネル ----
+const descEl = document.getElementById("desc");
+function updateDesc() {
+  const t = document.getElementById("descTitle");
+  const w = document.getElementById("descWhat");
+  const y = document.getElementById("descWhy");
+  descEl.className = "";
+  if (cur === 0) {
+    t.innerHTML = "TLS ハンドシェイクとは";
+    w.innerHTML = "HTTP は平文 — 経路上の誰でも <code>GET /login</code> も <code>password=...</code> も読めて、書き換えもできる。TLS は HTTP の下に潜り込み、通信を「盗聴できない・改ざんできない・なりすませない」状態にする層。";
+    y.innerHTML = "登場人物は <b>クライアント・サーバー・CA（認証局）</b> の3人。守るのは <b>機密性</b>（共通鍵暗号）・<b>完全性</b>（メッセージ認証）・<b>真正性</b>（証明書 + CA 署名）の3つ。「次へ ▶」で1ステップずつ進めよう。";
+    return;
+  }
+  const s = STEPS[cur - 1];
+  t.innerHTML = s.title + " " + (s.tag || "");
+  w.innerHTML = s.what;
+  y.innerHTML = s.why;
+  if (s.type === "internal") descEl.classList.add("internal-step");
+  if (s.kind === "enc") descEl.classList.add("enc-step");
+  if (s.kind === "prep") descEl.classList.add("prep-step");
+}
+
+// ---- UI 更新 ----
+function updateUI() {
+  document.getElementById("stepnum").innerHTML =
+    cur === 0 ? "<b>開始前</b> / 全 " + TOTAL + " ステップ"
+              : "ステップ <b>" + cur + "</b> / " + TOTAL;
+  btnPrev.disabled = busy || cur === 0;
+  btnNext.disabled = busy || cur === TOTAL;
+  btnNext.textContent = cur === TOTAL ? "完了 ✓" : "次へ ▶";
+  // 進行状況バー
+  [...progEl.children].forEach((seg, i) => {
+    seg.className = "seg" + (i < cur - 1 ? " done" : i === cur - 1 ? " now" : "");
+  });
+  [...progLblEl.children].forEach((lbl, i) => {
+    lbl.className = i === cur - 1 ? "now" : "";
+  });
+  updateEncZone();
+  updateDesc();
+}
+
+// ---- 進む ----
+function next() {
+  if (busy || cur >= TOTAL) return;
+  busy = true;
+  updateUI();
+  const i = cur;
+  const step = STEPS[i];
+  const finish = () => { cur = i + 1; busy = false; updateUI(); };
+
+  if (step.type === "internal") {
+    artifactEls[i] = drawInternal(step, i, true);
+    if (step.id === "verify") showVerifyPanel(i, true);
+    setTimeout(finish, step.id === "verify" ? 600 : 500);
+  } else {
+    flyPacket(step, i, step.from, step.to, step.packet, () => {
+      if (step.bidir) {
+        flyPacket(step, i, step.to, step.from, step.packetBack, () => {
+          artifactEls[i] = drawMsg(step, i);
+          finish();
+        });
+      } else {
+        artifactEls[i] = drawMsg(step, i);
+        finish();
+      }
+    });
+  }
+}
+
+// ---- 戻る ----
+function prev() {
+  if (busy || cur === 0) return;
+  cur--;
+  const el = artifactEls[cur];
+  if (el) { el.remove(); artifactEls[cur] = null; }
+  if (STEPS[cur].id === "verify") hideVerifyPanel();
+  // 戻った先が verify 完了状態なら表示を維持
+  if (cur > 0 && STEPS[cur - 1].id === "verify") {
+    showVerifyPanel(cur - 1, false);
+  }
+  updateUI();
+}
+
+// ---- リセット ----
+function reset() {
+  if (busy) return;
+  artifactEls.forEach(el => el && el.remove());
+  artifactEls.length = 0;
+  hideVerifyPanel();
+  cur = 0;
+  updateUI();
+}
+
+btnNext.addEventListener("click", next);
+btnPrev.addEventListener("click", prev);
+btnReset.addEventListener("click", reset);
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowRight") { e.preventDefault(); next(); }
+  if (e.key === "ArrowLeft")  { e.preventDefault(); prev(); }
+});
+
+updateUI();
+</script>
+</body>
+</html>

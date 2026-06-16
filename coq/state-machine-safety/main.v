@@ -123,6 +123,17 @@ Proof.
   - intros _. assumption.
 Qed.
 
+Lemma reachable_holds (P : State -> Prop) :
+  P init ->
+  (forall s s', P s -> step s s' -> P s') ->
+  forall s, reachable s -> P s.
+Proof.
+  intros Hbase Hpres s Hr.
+  induction Hr as [| s s' Hreach IH Hstep].
+  - exact Hbase.
+  - exact (Hpres s s' IH Hstep).
+Qed.
+
 (* (3) 到達可能な全状態が不変条件を満たす（reachable に関する帰納法） *)
 Theorem reachable_inv : forall s, reachable s -> invariant s.
 Proof.

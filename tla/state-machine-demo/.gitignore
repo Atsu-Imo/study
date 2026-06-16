@@ -1,0 +1,9 @@
+# TLC 本体（バイナリなのでコミットしない。README の手順で取得する）
+tla2tools.jar
+
+# TLC の出力物
+states/
+*.toolbox/
+*_TTrace_*.tla
+*_TTrace_*.bin
+MC.out

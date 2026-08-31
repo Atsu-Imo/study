@@ -16,4 +16,6 @@ members = [
     "net-02-http-server",
     "net-03-dns",
     "net-extra-http2-hpack",
+    "img-01-png-chunks",
+    "img-02-png-ihdr",
 ]

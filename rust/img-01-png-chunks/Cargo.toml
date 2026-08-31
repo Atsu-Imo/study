@@ -1,0 +1,4 @@
+[package]
+name = "img-01-png-chunks"
+version = "0.1.0"
+edition = "2024"

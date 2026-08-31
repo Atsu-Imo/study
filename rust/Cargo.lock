@@ -37,6 +37,14 @@ name = "hello-cargo"
 version = "0.1.0"
 
 [[package]]
+name = "img-01-png-chunks"
+version = "0.1.0"
+
+[[package]]
+name = "img-02-png-ihdr"
+version = "0.1.0"
+
+[[package]]
 name = "lifetimes"
 version = "0.1.0"
 

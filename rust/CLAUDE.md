@@ -2,7 +2,11 @@
 
 ## プロジェクト概要
 
-このディレクトリはGo経験者がRustを学ぶためのカリキュラムである。カリキュラムの詳細は `CURRICULUM.md` を参照すること。
+このディレクトリはGo経験者がRustを学ぶためのカリキュラムである。カリキュラムは3系統ある。
+
+- `CURRICULUM.md` — Rust言語そのものの学習 (`01-`〜`11-`)
+- `NETWORK_CURRICULUM.md` — ネットワークの登場人物をRustで実装 (`net-XX-`)
+- `IMAGE_CURRICULUM.md` — PNGデコーダをRustで実装 (`img-XX-`)
 
 ## 学習の進め方
 
